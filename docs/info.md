@@ -41,7 +41,7 @@ El sistema trabaja de la siguiente manera:
    - Cada bit se ingresa con un pulso de reloj en `CLK`.
 
 3. **Selección de operación**
-   - La ALU calcula continuamente el resultado en función de `A`, `B` y `OP`.
+   - La ALU calcula continuamente el resultado en función de `BIT_IN` y `OP`.
    - La señal `OP` define la operación:
 
      | OP   | Operación            |
