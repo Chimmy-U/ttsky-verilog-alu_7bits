@@ -23,9 +23,9 @@ Project proposed in the *Chip Design and Fabrication Bootcamp*, developed at the
 | Process | SKY130 |
 | Language | Verilog |
 
-## Pinout
+### Pinout
 
-### Inputs (`ui_in`)
+#### Inputs (`ui_in`)
 
 | Pin | Function |
 |---|---|
@@ -33,11 +33,11 @@ Project proposed in the *Chip Design and Fabrication Bootcamp*, developed at the
 | `ui_in[3:1]` | OP (Operation select) |
 | `ui_in[7:4]` | Unused |
 
-### Outputs (`uo_out`)
+#### Outputs (`uo_out`)
 
 | Pin | Function |
 |---|---|
-| `uo_out[6:0]` | DATA_OUT (Parallel data output, LSB) |
+| `uo_out[6:0]` | DATA_OUT (Parallel data output) |
 | `uo_out[7]` | DONE (Indicates operation complete and valid output) |
 
 ## What is Tiny Tapeout?
