@@ -22,7 +22,7 @@ alu_7bits unit_alu_7bits(
     .done(uo_out[7])
 );
 
-wire _unused = &{ena, uio_in, 1'b0};
+wire _unused = &{ena, uio_in, ui_in[7:4], 1'b0};
 
 assign uio_out = 8'bz;
 assign uio_oe = 8'b0;
