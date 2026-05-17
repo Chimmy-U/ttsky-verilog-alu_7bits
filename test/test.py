@@ -3,125 +3,90 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, FallingEdge, ClockCycles, ReadOnly
-
-WIDTH = 24
-FRAC_BITS = 23
-MASK = (1 << WIDTH) - 1
+from cocotb.triggers import ClockCycles, FallingEdge
 
 
-def float_to_fixed(value: float) -> int:
-    """Convert a real value to 24-bit fixed-point with 23 fractional bits."""
-    return int(round(value * (1 << FRAC_BITS))) & MASK
-
-
-def fixed_to_float(value: int) -> float:
-    """Convert a 24-bit fixed-point integer back to real."""
-    return value / float(1 << FRAC_BITS)
-
-
-def set_inputs(dut, x_bit: int, y_bit: int, start_bit: int) -> None:
-    """Drive ui_in[0]=x, ui_in[1]=y, ui_in[2]=start."""
-    dut.ui_in.value = (x_bit & 1) | ((y_bit & 1) << 1) | ((start_bit & 1) << 2)
-
-
-async def reset_dut(dut):
-    """
-    Reset similar to the Verilog testbench.
-    With a 50 MHz clock (20 ns period), 100 ns = 5 cycles.
-    """
-    dut.ena.value = 1
-    dut.uio_in.value = 0
+async def send_operands(dut, A, B, OP):
+    # Reset
+    dut.rst_n.value = 0
     dut.ui_in.value = 0
 
-    # Wrapper reset is active-low
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
+    # op está en ui_in[3:1]
+    dut.ui_in.value = (OP << 1)
 
     await ClockCycles(dut.clk, 2)
 
-
-async def send_serial_operands(dut, x_word: int, y_word: int):
-    """
-    Send 24-bit operands serially, LSB first, while start is high.
-    This matches the Verilog testbench task.
-    """
+    # Primer bit junto con salida de reset
     await FallingEdge(dut.clk)
-    set_inputs(dut, (x_word >> 0) & 1, (y_word >> 0) & 1, 1)
+    dut.rst_n.value = 1
+    dut.ui_in.value = (OP << 1) | (A & 0x1)
 
-    for i in range(1, WIDTH):
+    # Enviar A (LSB → MSB)
+    for i in range(1, 7):
         await FallingEdge(dut.clk)
-        set_inputs(dut, (x_word >> i) & 1, (y_word >> i) & 1, 1)
+        bit = (A >> i) & 0x1
+        dut.ui_in.value = (OP << 1) | bit
 
+    # Enviar B (LSB → MSB)
+    for i in range(7):
+        await FallingEdge(dut.clk)
+        bit = (B >> i) & 0x1
+        dut.ui_in.value = (OP << 1) | bit
+
+    # Línea en reposo
     await FallingEdge(dut.clk)
-    set_inputs(dut, 0, 0, 0)
+    dut.ui_in.value = (OP << 1)
 
-
-async def receive_serial_q(dut) -> int:
-    """
-    Receive 24 quotient bits serially, LSB first.
-    Closer to the Verilog task:
-        wait(done == 1'b1);
-        for i=0..23 begin
-            @(negedge clk);
-            qword[i] = q;
-        end
-        wait(done == 1'b0);
-    """
-    while True:
-        await ReadOnly()
-        if int(dut.uo_out.value[1]) == 1:
-            break
-        await RisingEdge(dut.clk)
-
-    q_word = 0
-
-    for i in range(WIDTH):
-        await FallingEdge(dut.clk)
-        await ReadOnly()
-        q_bit = int(dut.uo_out.value[0]) & 1
-        q_word |= (q_bit << i)
-
-    while int(dut.uo_out.value[1]) == 1:
-        await RisingEdge(dut.clk)
-
-    return q_word
+    # Esperar EXECUTE + DONE
+    await ClockCycles(dut.clk, 3)
 
 
 @cocotb.test()
 async def test_project(dut):
     dut._log.info("Start")
 
-    # 50 MHz clock => 20 ns period
+    # Clock a 50 MHz
     clock = Clock(dut.clk, 20, unit="ns")
     cocotb.start_soon(clock.start())
 
+    # Reset inicial
     dut._log.info("Reset")
-    await reset_dut(dut)
+    dut.ena.value = 1
+    dut.ui_in.value = 0
+    dut.uio_in.value = 0
+    dut.rst_n.value = 0
 
-    dut._log.info("Test 1.5 / 1.0")
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
 
-    x_real = 1.5
-    y_real = 1.0
+    # =========================
+    # PRUEBA 1: SUMA
+    # 25 + 12 = 37
+    # =========================
+    dut._log.info("Test SUMA")
 
-    x_word = float_to_fixed(x_real)
-    y_word = float_to_fixed(y_real)
+    await send_operands(dut, 25, 12, 0b000)
 
-    dut._log.info(f"x_word = 0x{x_word:06X}")
-    dut._log.info(f"y_word = 0x{y_word:06X}")
+    result = dut.uo_out.value.integer & 0x7F
+    done   = (dut.uo_out.value.integer >> 7) & 0x1
 
-    await send_serial_operands(dut, x_word, y_word)
-    q_word = await receive_serial_q(dut)
+    dut._log.info(f"Resultado SUMA: {result}")
 
-    expected_real = (x_real / y_real) - 0.25
-    expected_word = float_to_fixed(expected_real)
+    assert result == 37, f"SUMA incorrecta: {result}"
+    assert done == 1, "Done no activado en SUMA"
 
-    dut._log.info(f"expected_real = {expected_real:.12f}")
-    dut._log.info(f"captured q_word = 0x{q_word:06X}")
-    dut._log.info(f"captured real   = {fixed_to_float(q_word):.12f}")
-    dut._log.info(f"expected q_word = 0x{expected_word:06X}")
+    # =========================
+    # PRUEBA 2: AND
+    # 85 & 102 = 68
+    # =========================
+    dut._log.info("Test AND")
 
-    assert q_word == expected_word, (
-        f"Mismatch: captured=0x{q_word:06X}, expected=0x{expected_word:06X}"
-    )
+    await send_operands(dut, 85, 102, 0b001)
+
+    result = dut.uo_out.value.integer & 0x7F
+    done   = (dut.uo_out.value.integer >> 7) & 0x1
+
+    dut._log.info(f"Resultado AND: {result}")
+
+    assert result == 68, f"AND incorrecto: {result}"
+    assert done == 1, "Done no activado en AND"
